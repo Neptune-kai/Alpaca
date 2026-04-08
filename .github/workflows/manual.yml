@@ -2,9 +2,14 @@ name: Alpaca Paper Trader
 
 on:
   schedule:
-    # Times are in UTC. 14, 17, 20 UTC corresponds to 10am, 1pm, 4pm ET.
-    - cron: '0 14,17,20 * * 1-5' 
-  workflow_dispatch: # Allows you to run it manually for testing
+    # 17:50 UTC = 1:50 PM ET
+    # 18:30 UTC = 2:30 PM ET
+    # 20:00 UTC = 4:00 PM ET
+    # Runs Monday-Friday (1-5)
+    - cron: '50 17 * * 1-5'
+    - cron: '30 18 * * 1-5'
+    - cron: '0 20 * * 1-5'
+  workflow_dispatch: # Allows manual trigger for testing
 
 jobs:
   trade:
@@ -24,7 +29,7 @@ jobs:
 
       - name: Run Trading Bot
         env:
-          # Pulls secrets from GitHub Settings, NOT the .env file
+          # These must match the names you put in GitHub Repo Settings > Secrets
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           ALPACA_BASE_URL: https://paper-api.alpaca.markets
