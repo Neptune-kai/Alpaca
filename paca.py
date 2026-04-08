@@ -2,72 +2,55 @@ import os
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
 
-# 1. Load credentials
+# Load .env for local testing (GitHub ignores this)
 load_dotenv()
 
+# 1. Setup Credentials
 API_KEY = os.getenv('ALPACA_API_KEY')
 API_SECRET = os.getenv('ALPACA_SECRET_KEY')
 BASE_URL = os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets').replace('/v2', '').rstrip('/')
 
-# 2. Initialize API
+# 2. Connection Safety Check
+if not API_KEY or not API_SECRET:
+    print(f"ERROR: Credentials missing. Key: {bool(API_KEY)}, Secret: {bool(API_SECRET)}")
+    raise ValueError("Check GitHub Secrets and YAML 'env' section.")
+
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
 
 def sell_weak_stocks():
-    """Sells positions that have dropped more than 2%."""
-    print("Checking for weak positions to sell...")
+    """Sells positions losing more than 2%"""
+    print("Checking for weak positions...")
     positions = api.list_positions()
     for p in positions:
-        # unrealized_plpc is the profit/loss percentage
         if float(p.unrealized_plpc) <= -0.02:
             print(f"Selling {p.symbol}: Loss of {float(p.unrealized_plpc)*100:.2f}%")
             api.close_position(p.symbol)
 
 def scan_and_buy():
-    """Buys multiple shares of stocks between $10-$50 that are cheaper than yesterday."""
-    print("Scanning for new buying opportunities...")
-    
-    # Configuration
-    BUDGET_PER_STOCK = 500  # Total dollars to spend per stock found
-    SCAN_LIMIT = 200        # Number of stocks to check
+    """Buys $500 worth of stocks between $10-$50 that are 'red' today"""
+    BUDGET_PER_STOCK = 500
     
     try:
-        # Get existing positions to avoid double-buying
         existing_symbols = [p.symbol for p in api.list_positions()]
-        
-        # Get active tradable stocks
         assets = api.list_assets(status='active')
-        symbols = [a.symbol for a in assets if a.tradable and a.marginable and a.symbol not in existing_symbols]
+        # Scan first 150 tradable stocks not already owned
+        symbols = [a.symbol for a in assets if a.tradable and a.marginable and a.symbol not in existing_symbols][:150]
         
-        # Pull data for the first chunk of symbols
-        batch = symbols[:SCAN_LIMIT]
-        snapshots = api.get_snapshots(batch)
+        snapshots = api.get_snapshots(symbols)
         
         for symbol, snapshot in snapshots.items():
             if snapshot and snapshot.latest_trade and snapshot.prev_daily_bar:
-                current_price = snapshot.latest_trade.price
+                price = snapshot.latest_trade.price
                 prev_close = snapshot.prev_daily_bar.close
                 
-                # Logic: $10-$50 and cheaper than yesterday
-                if 10 <= current_price <= 50 and current_price < prev_close:
-                    qty = int(BUDGET_PER_STOCK // current_price)
-                    
+                if 10 <= price <= 50 and price < prev_close:
+                    qty = int(BUDGET_PER_STOCK // price)
                     if qty > 0:
-                        print(f"MATCH: {symbol} at ${current_price:.2f} (Yesterday: ${prev_close:.2f})")
-                        api.submit_order(
-                            symbol=symbol,
-                            qty=qty,
-                            side='buy',
-                            type='market',
-                            time_in_force='gtc'
-                        )
-                        print(f"✅ Order placed for {qty} shares of {symbol}")
-
+                        print(f"MATCH: {symbol} @ ${price:.2f}. Ordering {qty} shares.")
+                        api.submit_order(symbol=symbol, qty=qty, side='buy', type='market', time_in_force='gtc')
     except Exception as e:
-        print(f"Error during scan/buy: {e}")
+        print(f"Scan error: {e}")
 
 if __name__ == "__main__":
-    # First, clean house (sell losers)
     sell_weak_stocks()
-    # Second, find new opportunities
     scan_and_buy()
-    print("Cycle complete.")
