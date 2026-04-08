@@ -2,52 +2,72 @@ import os
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
 
+# 1. Load credentials
 load_dotenv()
 
 API_KEY = os.getenv('ALPACA_API_KEY')
 API_SECRET = os.getenv('ALPACA_SECRET_KEY')
-BASE_URL = os.getenv('ALPACA_BASE_URL').replace('/v2', '').rstrip('/')
+BASE_URL = os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets').replace('/v2', '').rstrip('/')
 
+# 2. Initialize API
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
 
+def sell_weak_stocks():
+    """Sells positions that have dropped more than 2%."""
+    print("Checking for weak positions to sell...")
+    positions = api.list_positions()
+    for p in positions:
+        # unrealized_plpc is the profit/loss percentage
+        if float(p.unrealized_plpc) <= -0.02:
+            print(f"Selling {p.symbol}: Loss of {float(p.unrealized_plpc)*100:.2f}%")
+            api.close_position(p.symbol)
+
 def scan_and_buy():
+    """Buys multiple shares of stocks between $10-$50 that are cheaper than yesterday."""
+    print("Scanning for new buying opportunities...")
+    
+    # Configuration
+    BUDGET_PER_STOCK = 500  # Total dollars to spend per stock found
+    SCAN_LIMIT = 200        # Number of stocks to check
+    
     try:
-        # 1. Get all tradable stocks
-        active_assets = api.list_assets(status='active')
-        symbols = [a.symbol for a in active_assets if a.tradable and a.marginable]
+        # Get existing positions to avoid double-buying
+        existing_symbols = [p.symbol for p in api.list_positions()]
         
-        # To avoid overloading the API, we'll scan a subset (e.g., first 200) 
-        # or you can pass the whole list if you have a paid data plan.
-        symbols_to_scan = symbols[:200] 
+        # Get active tradable stocks
+        assets = api.list_assets(status='active')
+        symbols = [a.symbol for a in assets if a.tradable and a.marginable and a.symbol not in existing_symbols]
         
-        print(f"Scanning {len(symbols_to_scan)} stocks...")
-        
-        # 2. Get snapshots for all symbols at once
-        snapshots = api.get_snapshots(symbols_to_scan)
+        # Pull data for the first chunk of symbols
+        batch = symbols[:SCAN_LIMIT]
+        snapshots = api.get_snapshots(batch)
         
         for symbol, snapshot in snapshots.items():
-            current_price = snapshot.latest_trade.price
-            prev_close = snapshot.prev_daily_bar.close
-            
-            # 3. Apply your Logic:
-            # - Price between $10 and $50
-            # - Current price is lower than yesterday's close
-            if 10 <= current_price <= 50 and current_price < prev_close:
-                print(f"MATCH: {symbol} | Now: ${current_price} | Prev: ${prev_close}")
+            if snapshot and snapshot.latest_trade and snapshot.prev_daily_bar:
+                current_price = snapshot.latest_trade.price
+                prev_close = snapshot.prev_daily_bar.close
                 
-                # 4. Place the Buy Order
-                api.submit_order(
-                    symbol=symbol,
-                    qty=1,
-                    side='buy',
-                    type='market',
-                    time_in_force='gtc'
-                )
-                print(f"Ordered 1 share of {symbol}")
+                # Logic: $10-$50 and cheaper than yesterday
+                if 10 <= current_price <= 50 and current_price < prev_close:
+                    qty = int(BUDGET_PER_STOCK // current_price)
+                    
+                    if qty > 0:
+                        print(f"MATCH: {symbol} at ${current_price:.2f} (Yesterday: ${prev_close:.2f})")
+                        api.submit_order(
+                            symbol=symbol,
+                            qty=qty,
+                            side='buy',
+                            type='market',
+                            time_in_force='gtc'
+                        )
+                        print(f"✅ Order placed for {qty} shares of {symbol}")
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error during scan/buy: {e}")
 
 if __name__ == "__main__":
+    # First, clean house (sell losers)
+    sell_weak_stocks()
+    # Second, find new opportunities
     scan_and_buy()
-    
+    print("Cycle complete.")
