@@ -1,35 +1,33 @@
-name: Alpaca Paper Trader
+name: Alpaca Trading Bot
 
 on:
   schedule:
-    # 17:50 UTC = 1:50 PM ET
-    # 18:30 UTC = 2:30 PM ET
-    # 20:00 UTC = 4:00 PM ET
-    # Runs Monday-Friday (1-5)
+    # 1:50 PM ET (17:50 UTC)
     - cron: '50 17 * * 1-5'
+    # 2:30 PM ET (18:30 UTC)
     - cron: '30 18 * * 1-5'
+    # 4:00 PM ET (20:00 UTC)
     - cron: '0 20 * * 1-5'
-  workflow_dispatch: # Allows manual trigger for testing
+  workflow_dispatch: # Allows manual run button in GitHub UI
 
 jobs:
-  trade:
+  run-bot:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
-        run: |
-          pip install alpaca-trade-api python-dotenv
+      - name: Install Dependencies
+        run: pip install alpaca-trade-api python-dotenv
 
-      - name: Run Trading Bot
+      - name: Execute Strategy
         env:
-          # These must match the names you put in GitHub Repo Settings > Secrets
+          # This maps your Repository Secrets to the Python script
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           ALPACA_BASE_URL: https://paper-api.alpaca.markets
